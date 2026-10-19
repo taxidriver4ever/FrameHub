@@ -1,0 +1,55 @@
+server:
+  port: ${USER_SERVICE_PORT:8081}
+  address: ${USER_SERVICE_BIND:127.0.0.1}
+  forward-headers-strategy: none
+spring:
+  application:
+    name: user-service
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD}
+      timeout: 3s
+  mail:
+    host: ${SMTP_HOST}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail.smtp.auth: ${SMTP_AUTH:true}
+      mail.smtp.starttls.enable: ${SMTP_STARTTLS:true}
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+app:
+  trust-gateway: ${TRUST_GATEWAY:false}
+  jwt-secret: ${JWT_SECRET}
+  code-secret: ${CODE_SECRET}
+  issuer: framehub-user
+  audience: framehub
+  access-seconds: 900
+  refresh-seconds: 604800
+  worker-id: ${WORKER_ID}
+  allowed-origins: ${ALLOWED_ORIGINS}
+  cookie-secure: true
+  mail-from: ${MAIL_FROM}
+  reset-url: ${RESET_URL}
+  minio-internal-endpoint: ${MINIO_INTERNAL_ENDPOINT:${MINIO_ENDPOINT}}
+  minio-endpoint: ${MINIO_ENDPOINT}
+  minio-access-key: ${MINIO_ACCESS_KEY}
+  minio-secret-key: ${MINIO_SECRET_KEY}
+  minio-bucket: ${MINIO_BUCKET:avatars}
+springdoc:
+  api-docs.enabled: ${API_DOCS_ENABLED:false}
+  swagger-ui.enabled: ${API_DOCS_ENABLED:false}

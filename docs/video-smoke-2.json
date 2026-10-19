@@ -1,0 +1,10 @@
+{
+  "videoId": "cb30fb5f-99fb-49c5-8ae3-c74bc9f3aced",
+  "status": "READY",
+  "resolutions": [
+    480,
+    720
+  ],
+  "sourceBytes": 2431986,
+  "hlsDecoded": true
+}

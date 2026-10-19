@@ -1,0 +1,38 @@
+services:
+  frontend:
+    build: ./frontend
+    ports: ['127.0.0.1:3000:8080']
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [edge]
+  mysql:
+    ports: ['127.0.0.1:${MYSQL_LOCAL_PORT:-13306}:3306']
+  redis:
+    ports: ['127.0.0.1:${REDIS_LOCAL_PORT:-16379}:6379']
+  minio:
+    ports: ['127.0.0.1:${MINIO_LOCAL_PORT:-19000}:9000', '127.0.0.1:${MINIO_CONSOLE_PORT:-19001}:9001']
+  kafka:
+    ports: ['127.0.0.1:19092:19092']
+  video-asset-service:
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      PAYMENT_PROVIDER: MOCK
+      WITHDRAWAL_PROVIDER: MOCK
+      COMMERCE_JOBS_ENABLED: 'true'
+      COMMERCE_CONSUMER_ENABLED: 'true'
+  media-worker:
+    environment:
+      VIDEO_WORKER_LEASE: 15s
+      VIDEO_WORKER_HEARTBEAT: 5s
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports: ['127.0.0.1:${SMTP_LOCAL_PORT:-11025}:1025', '127.0.0.1:${MAILPIT_LOCAL_PORT:-18025}:8025']
+    networks: [backend]
+  user-service:
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+networks:
+  backend:
+    internal: false

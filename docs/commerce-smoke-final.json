@@ -1,0 +1,19 @@
+{
+  "videoId": "07daaefc-2436-4a3f-8826-7be9458bcd69",
+  "materialId": "8502a3be-a08a-494d-838a-0c0c703bc5cd",
+  "listingOrderId": "580fd64d-e0ef-45b3-80c2-090a3f6814cf",
+  "purchaseOrderId": "532fea77-5605-49d0-952b-9b0051620a08",
+  "paymentId": "79f1c038-fcbf-4203-a028-fcd4130a611b",
+  "entitlementId": "29116467-e628-4184-a591-639cd42fe6a2",
+  "withdrawalId": "0d1d0570-e8af-42b4-9b5f-25c22b1ab9e4",
+  "sourceBytes": 5026085,
+  "sourceHashVerified": true,
+  "hlsDecoded": true,
+  "duplicateEventsIdempotent": true,
+  "restartRecovered": true,
+  "refundRevoked": true,
+  "debtCent": 8440,
+  "ledgerBalanced": true,
+  "reconciliationDifferences": 0,
+  "mockOnly": true
+}

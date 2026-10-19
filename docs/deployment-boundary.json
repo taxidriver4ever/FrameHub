@@ -1,0 +1,72 @@
+{
+  "checkedAt": "2026-10-19T10:25:51.1770909+08:00",
+  "services": [
+    {
+      "name": "canal",
+      "publishedPorts": [],
+      "profile": null
+    },
+    {
+      "name": "gateway-service",
+      "publishedPorts": [
+        "127.0.0.1:28080->28080"
+      ],
+      "profile": null
+    },
+    {
+      "name": "kafka",
+      "publishedPorts": [],
+      "profile": null
+    },
+    {
+      "name": "kafka-init",
+      "publishedPorts": [],
+      "profile": null
+    },
+    {
+      "name": "kafka-storage-init",
+      "publishedPorts": [],
+      "profile": null
+    },
+    {
+      "name": "media-worker",
+      "publishedPorts": [],
+      "profile": "production"
+    },
+    {
+      "name": "minio",
+      "publishedPorts": [],
+      "profile": null
+    },
+    {
+      "name": "minio-init",
+      "publishedPorts": [],
+      "profile": null
+    },
+    {
+      "name": "mysql",
+      "publishedPorts": [],
+      "profile": null
+    },
+    {
+      "name": "redis",
+      "publishedPorts": [],
+      "profile": null
+    },
+    {
+      "name": "user-service",
+      "publishedPorts": [],
+      "profile": "production"
+    },
+    {
+      "name": "video-asset-service",
+      "publishedPorts": [],
+      "profile": "production"
+    },
+    {
+      "name": "video-db-init",
+      "publishedPorts": [],
+      "profile": null
+    }
+  ]
+}

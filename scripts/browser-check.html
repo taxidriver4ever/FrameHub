@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><title>FrameHub 浏览器联调检查</title>
+<style>body{font:16px system-ui;max-width:760px;margin:48px auto;padding:16px}button,input{font:inherit;padding:10px;margin:8px 0}pre{white-space:pre-wrap;background:#eee;padding:16px}</style>
+<h1>FrameHub 浏览器联调检查</h1>
+<p>仅用于本地验证：从 localhost:3000 跨源访问 localhost:28080，检查真实浏览器 CORS、HttpOnly Cookie 与 JWT 流程。</p>
+<button id="send">1. 发送注册验证码</button>
+<p id="email"></p>
+<label>邮件验证码 <input id="code" maxlength="6" autocomplete="off"></label>
+<button id="finish">2. 注册、登录、查询资料、刷新并退出</button>
+<pre id="result">等待开始。</pre>
+<script>
+let email,access;
+const password='BrowserCheck123!';
+const result=document.querySelector('#result');
+async function api(path,body,method='POST',auth=false){
+ const headers={};if(body!==undefined)headers['Content-Type']='application/json';if(auth)headers.Authorization='Bearer '+access;
+ const r=await fetch('http://localhost:28080'+path,{method,headers,credentials:'include',body:body===undefined?undefined:JSON.stringify(body)});
+ const j=await r.json();if(!r.ok)throw new Error(path+': '+r.status+' '+j.message);return j.data;
+}
+document.querySelector('#send').onclick=async()=>{try{
+ email='browser-'+crypto.randomUUID()+'@example.com';document.querySelector('#email').textContent=email;
+ await api('/auth/email-code',{email,scene:'REGISTER'});result.textContent='验证码已发送。请从 Mailpit 邮件中填写。';
+}catch(e){result.textContent=e.message;}};
+document.querySelector('#finish').onclick=async()=>{try{
+ await api('/auth/register',{email,password,verificationCode:document.querySelector('#code').value,nickname:'浏览器联调用户'});
+ const login=await api('/auth/login',{email,password});access=login.accessToken;
+ const me=await api('/users/me',undefined,'GET',true);
+ if(me.email!==email)throw new Error('用户资料不匹配');
+ const refreshed=await api('/auth/refresh');access=refreshed.accessToken;
+ await api('/auth/logout',undefined,'POST',true);
+ const denied=await fetch('http://localhost:28080/users/me',{headers:{Authorization:'Bearer '+access},credentials:'include'});
+ if(denied.status!==401)throw new Error('注销后未拒绝访问');
+ result.textContent='PASS：真实浏览器跨源注册、登录、个人资料、Cookie 刷新、注销失效均通过。';access=null;
+}catch(e){result.textContent=e.message;}};
+</script></html>

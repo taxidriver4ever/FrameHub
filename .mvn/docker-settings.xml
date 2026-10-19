@@ -1,0 +1,10 @@
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">
+  <!-- All dependencies are releases available in Maven Central. Avoid upstream snapshot repositories in container builds. -->
+  <mirrors>
+    <mirror>
+      <id>central-releases</id>
+      <mirrorOf>*</mirrorOf>
+      <url>https://repo.maven.apache.org/maven2</url>
+    </mirror>
+  </mirrors>
+</settings>

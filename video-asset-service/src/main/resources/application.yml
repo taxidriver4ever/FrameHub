@@ -1,0 +1,112 @@
+server:
+  port: ${VIDEO_SERVICE_PORT:8082}
+  address: ${VIDEO_SERVICE_BIND:127.0.0.1}
+  forward-headers-strategy: none
+spring:
+  application:
+    name: video-asset-service
+  datasource:
+    url: ${VIDEO_DB_URL}
+    username: ${VIDEO_DB_USERNAME}
+    password: ${VIDEO_DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 16
+      connection-timeout: 10000
+      validation-timeout: 3000
+      data-source-properties:
+        connectTimeout: 5000
+        socketTimeout: 30000
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:19092}
+    consumer:
+      group-id: ${VIDEO_CONSUMER_GROUP:video-transcode-v1}
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      max-poll-records: 1
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      properties:
+        max.poll.interval.ms: ${VIDEO_POLL_INTERVAL_MS:300000}
+        session.timeout.ms: 45000
+        heartbeat.interval.ms: 15000
+    listener:
+      ack-mode: manual_immediate
+      concurrency: ${VIDEO_CONSUMERS:3}
+      missing-topics-fatal: true
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+video:
+  identity-url: ${USER_INTERNAL_URL:http://127.0.0.1:8081}
+  bucket: ${VIDEO_BUCKET:videos}
+  endpoint: ${MINIO_INTERNAL_ENDPOINT:${MINIO_ENDPOINT}}
+  public-endpoint: ${MINIO_ENDPOINT}
+  access-key: ${MINIO_ACCESS_KEY}
+  secret-key: ${MINIO_SECRET_KEY}
+  max-file-bytes: ${VIDEO_MAX_FILE_BYTES:2147483648}
+  part-bytes: ${VIDEO_PART_BYTES:16777216}
+  quota-bytes: ${VIDEO_QUOTA_BYTES:5368709120}
+  max-uploads: ${VIDEO_MAX_UPLOADS:3}
+  session-ttl: ${VIDEO_SESSION_TTL:24h}
+  presign-ttl: ${VIDEO_PRESIGN_TTL:15m}
+  max-duration-seconds: ${VIDEO_MAX_DURATION_SECONDS:1800}
+  consumer-concurrency: ${VIDEO_CONSUMERS:3}
+  per-user-concurrency: ${VIDEO_PER_USER_CONCURRENCY:2}
+  ffmpeg-concurrency: ${VIDEO_FFMPEG_CONCURRENCY:3}
+  ffmpeg-threads: ${VIDEO_FFMPEG_THREADS:1}
+  probe-timeout: ${VIDEO_PROBE_TIMEOUT:1m}
+  ffmpeg-timeout: ${VIDEO_FFMPEG_TIMEOUT:60m}
+  io-timeout: ${VIDEO_IO_TIMEOUT:15m}
+  job-timeout: ${VIDEO_JOB_TIMEOUT:80m}
+  poll-interval-ms: ${VIDEO_POLL_INTERVAL_MS:300000}
+  max-temp-bytes: ${VIDEO_MAX_TEMP_BYTES:6442450944}
+  max-dimension: ${VIDEO_MAX_DIMENSION:8192}
+  max-output-files: ${VIDEO_MAX_OUTPUT_FILES:4096}
+  max-attempts: ${VIDEO_MAX_ATTEMPTS:3}
+  retry-backoff: ${VIDEO_RETRY_BACKOFF:10s}
+  orphan-grace: ${VIDEO_ORPHAN_GRACE:48h}
+  work-dir: ${VIDEO_WORK_DIR:./.video-work}
+  ffmpeg: ${FFMPEG_PATH:ffmpeg}
+  ffprobe: ${FFPROBE_PATH:ffprobe}
+  watermark: ${VIDEO_WATERMARK:FrameHub Preview}
+  config-version: ${VIDEO_CONFIG_VERSION:hls-v1}
+  renditions: ${VIDEO_RENDITIONS:480,720,1080}
+  database: ${VIDEO_DATABASE:framehub_video}
+  topic: ${VIDEO_TOPIC:video.outbox.cdc}
+  group: ${VIDEO_CONSUMER_GROUP:video-transcode-v1}
+  consumer-enabled: ${VIDEO_CONSUMER_ENABLED:true}
+  cleanup-enabled: ${VIDEO_CLEANUP_ENABLED:true}
+springdoc:
+  api-docs.enabled: ${API_DOCS_ENABLED:false}
+  swagger-ui.enabled: ${API_DOCS_ENABLED:false}
+
+media:
+  worker:
+    enabled: ${VIDEO_WORKER_ENABLED:true}
+    lease: ${VIDEO_WORKER_LEASE:2m}
+    heartbeat: ${VIDEO_WORKER_HEARTBEAT:20s}
+    scan-ms: ${VIDEO_WORKER_SCAN_MS:2000}
+
+commerce:
+  consumer-enabled: ${COMMERCE_CONSUMER_ENABLED:false}
+  payment-provider: ${PAYMENT_PROVIDER:DISABLED}
+  withdrawal-provider: ${WITHDRAWAL_PROVIDER:DISABLED}
+  jobs-enabled: ${COMMERCE_JOBS_ENABLED:false}
+  max-pending-orders: ${MAX_PENDING_ORDERS:5}
+  daily-cancellation-limit: ${DAILY_CANCELLATION_LIMIT:10}
+  order-ttl: ${ORDER_TTL:15m}
+  download-ttl: ${DOWNLOAD_TTL:2m}
+  currency: CNY
+  wechat:
+    enabled: ${WECHAT_ENABLED:false}
+    merchant-id: ${WECHAT_MERCHANT_ID:}
+    app-id: ${WECHAT_APP_ID:}
+    merchant-serial: ${WECHAT_MERCHANT_SERIAL:}
+    private-key-path: ${WECHAT_PRIVATE_KEY_PATH:}
+    platform-key-id: ${WECHAT_PLATFORM_KEY_ID:}
+    platform-public-key-path: ${WECHAT_PLATFORM_PUBLIC_KEY_PATH:}
+    api-v3-key: ${WECHAT_API_V3_KEY:}
+    notify-url: ${WECHAT_NOTIFY_URL:}

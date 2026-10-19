@@ -1,0 +1,85 @@
+const $ = id => document.getElementById(id);
+const API = window.FRAMEHUB_API || 'http://localhost:28080';
+$('apiAddress').textContent = API;
+let token = sessionStorage.getItem('framehub.access') || '', me = null, refreshing = null;
+let activeUpload = null, uploadPaused = false, uploadRunning = false;
+const money = cents => `¥${(Number(cents) / 100).toFixed(2)} (${cents} 分)`;
+const key = () => crypto.randomUUID();
+function notice(message, error = false) { $('notice').textContent = message; $('notice').className = error ? 'error' : 'success'; }
+function saveToken(value) { token = value || ''; if (token) sessionStorage.setItem('framehub.access', token); else sessionStorage.removeItem('framehub.access'); }
+async function api(path, method = 'GET', body, retry = true) {
+  const headers = {}; if (token) headers.Authorization = `Bearer ${token}`; if (body !== undefined) headers['Content-Type'] = 'application/json';
+  const response = await fetch(API + path, {method, headers, credentials: 'include', body: body === undefined ? undefined : JSON.stringify(body)});
+  if (response.status === 401 && retry && !path.startsWith('/auth/')) {
+    refreshing ||= api('/auth/refresh', 'POST', undefined, false).then(data => saveToken(data.accessToken)).finally(() => { refreshing = null; });
+    try { await refreshing; return api(path, method, body, false); } catch { saveToken(''); throw new Error('登录已失效，请重新登录'); }
+  }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(`${data.message || '请求失败'} (${response.status})`);
+  return data.data;
+}
+function action(id, fn) { $(id).addEventListener('click', async event => { const b = event.currentTarget; b.disabled = true; try { await fn(); } catch (e) { notice(e.message, true); } finally { b.disabled = false; } }); }
+function form(id, fn) { $(id).addEventListener('submit', async event => { event.preventDefault(); const f = event.currentTarget, buttons = [...f.querySelectorAll('button')]; buttons.forEach(b => b.disabled = true); try { await fn(Object.fromEntries(new FormData(f)), f); } catch (e) { notice(e.message, true); } finally { buttons.forEach(b => b.disabled = false); } }); }
+function node(tag, text, cls) { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; }
+function button(text, fn) { const b = node('button', text); b.type = 'button'; b.addEventListener('click', async () => { b.disabled = true; try { await fn(); } catch (e) { notice(e.message, true); } finally { b.disabled = false; } }); return b; }
+function card(title, description) { const c = node('div', undefined, 'card'); c.append(node('h3', title), node('p', description, 'meta')); return c; }
+function json(target, value) { $(target).textContent = JSON.stringify(value, null, 2); }
+function show(page) { for (const section of document.querySelectorAll('main>section')) section.hidden = section.id !== page; for (const b of $('nav').querySelectorAll('button')) b.classList.toggle('active', b.dataset.page === page); }
+const loaders = {market: market, upload: videos, materials: materials, orders: orders, purchases: purchases, earnings: earnings};
+$('nav').addEventListener('click', async e => { const page = e.target.dataset.page; if (!page) return; show(page); try { await loaders[page]?.(); } catch (error) { notice(error.message, true); } });
+async function profile() { me = await api('/users/me'); $('identity').textContent = `${me.nickname} · ${me.roles.join(' / ')}`; return me; }
+form('login', async data => { const result = await api('/auth/login', 'POST', data); saveToken(result.accessToken); await profile(); notice('登录成功'); show('market'); await market(); });
+action('emailCode', async () => { const email = $('register').elements.email.value; await api('/auth/email-code', 'POST', {email, scene: 'REGISTER'}); notice('验证码已发送，请查收邮件'); });
+form('register', async data => { await api('/auth/register', 'POST', data); $('login').elements.email.value = data.email; notice('注册成功，请登录'); });
+action('logout', async () => { await api('/auth/logout', 'POST'); saveToken(''); me = null; $('identity').textContent = '未登录'; $('payment').replaceChildren(); show('auth'); notice('已退出'); });
+action('activate', async () => { await api('/creators/me/activate', 'POST', {}); await profile(); notice('创作者身份已开通，可上传视频'); });
+action('profile', async () => json('profileData', await profile()));
+const sessionKey = () => `framehub.upload.${me?.userId}`;
+function savedUpload() { try { return JSON.parse(localStorage.getItem(sessionKey())); } catch { return null; } }
+function putPart(url, blob, completed, total) { return new Promise((resolve, reject) => { const xhr = new XMLHttpRequest(); activeUpload = xhr; xhr.open('PUT', url); xhr.timeout = 15 * 60 * 1000; xhr.upload.onprogress = e => { $('progress').value = 100 * (completed + e.loaded) / total; }; xhr.onload = () => xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`分片上传失败 (${xhr.status})`)); xhr.onerror = () => reject(new Error('对象存储连接失败，已完成分片可续传')); xhr.ontimeout = () => reject(new Error('分片上传超时，可续传')); xhr.onabort = () => reject(new Error('上传已暂停，可重新选择同一文件续传')); xhr.send(blob); }); }
+form('uploadForm', async (data, f) => {
+  if (uploadRunning) throw new Error('已有上传任务'); if (!me) await profile();
+  const file = f.elements.file.files[0]; if (!file) throw new Error('请选择视频');
+  const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', await file.slice(0, 1024 * 1024).arrayBuffer()))].map(v => v.toString(16).padStart(2, '0')).join('');
+  const fingerprint = `${file.name}:${file.size}:${file.lastModified}:${digest}`;
+  let saved = savedUpload(); if (saved && saved.fingerprint !== fingerprint) throw new Error('有其他文件的未完成会话，请选择原文件或先取消会话');
+  uploadPaused = false; uploadRunning = true; $('pauseUpload').disabled = false; $('abortUpload').disabled = false;
+  try {
+    if (!saved) { const contentType = file.type || ({mkv:'video/x-matroska',avi:'video/x-msvideo',mov:'video/quicktime',mp4:'video/mp4',webm:'video/webm'}[file.name.split('.').pop().toLowerCase()]); const upload = await api('/api/v1/videos/uploads/init', 'POST', {filename: file.name, title: data.title, fileSize: file.size, contentType}); saved = {fingerprint, ...upload}; localStorage.setItem(sessionKey(), JSON.stringify(saved)); }
+    const path = `/api/v1/videos/uploads/${saved.uploadSessionId}`;
+    const progress = await api(path); let completed = progress.uploadedParts.reduce((sum, p) => sum + p.size, 0);
+    for (const n of progress.missingParts) { if (uploadPaused) throw new Error('上传已暂停'); const part = file.slice((n - 1) * saved.partSize, Math.min(n * saved.partSize, file.size)); $('uploadStatus').textContent = `上传第 ${n}/${saved.partCount} 片`; const signed = await api(path + '/parts/presign', 'POST', {partNumber: n, sizeBytes: part.size}); if (uploadPaused) throw new Error('上传已暂停'); await putPart(signed.uploadUrl, part, completed, file.size); completed += part.size; }
+    if (uploadPaused) throw new Error('上传已暂停'); $('uploadStatus').textContent = '确认分片合并与媒体校验…'; await api(path + '/complete', 'POST', {}); localStorage.removeItem(sessionKey()); $('progress').value = 100; $('uploadStatus').textContent = `上传完成，等待转码。视频 ID：${saved.videoId}`; notice('视频已提交异步处理，可刷新状态'); await videos();
+  } finally { uploadRunning = false; activeUpload = null; }
+});
+action('pauseUpload', async () => { uploadPaused = true; activeUpload?.abort(); notice('已暂停，已上传分片保留'); });
+action('abortUpload', async () => { if (!me) await profile(); const s = savedUpload(); if (!s) return notice('没有待取消的会话'); uploadPaused = true; activeUpload?.abort(); await api(`/api/v1/videos/uploads/${s.uploadSessionId}/abort`, 'POST', {}); localStorage.removeItem(sessionKey()); notice('上传会话已取消'); });
+async function videos() { const result = await api('/api/v1/videos/me'); $('videos').replaceChildren(); for (const v of result.items) { const c = card(v.title, `${v.status} · ${v.videoId}`); if (v.status === 'READY') c.append(button('用此视频创建素材', () => { $('materialForm').reset(); $('materialForm').elements.id.value = ''; $('materialForm').elements.videoId.value = v.videoId; $('materialForm').elements.videoId.disabled = false; $('materialForm').elements.title.value = v.title; show('materials'); })); $('videos').append(c); } }
+action('refreshVideos', videos);
+function fillMaterial(m) { const f = $('materialForm'); f.reset(); for (const name of ['id','videoId','title','description','category','priceCent']) f.elements[name].value = m[name]; f.elements.tags.value = m.tags.join(', '); for (const name of ['scope','durationDays']) f.elements[name].value = m.license[name]; for (const name of ['commercialUse','redistribution','modification']) f.elements[name].checked = m.license[name]; f.elements.licenseDescription.value = m.license.description; f.elements.videoId.disabled = true; $('editorTitle').textContent = `编辑素材：下一版本 ${m.version + 1}`; f.scrollIntoView(); }
+form('materialForm', async (data, f) => { const license = {scope: data.scope, durationDays: Number(data.durationDays), commercialUse: f.elements.commercialUse.checked, redistribution: f.elements.redistribution.checked, modification: f.elements.modification.checked, description: data.licenseDescription}; const request = {title:data.title, description:data.description, category:data.category, tags:data.tags.split(',').map(x => x.trim()).filter(Boolean), priceCent:Number(data.priceCent), license}; if (!data.id) request.videoId = data.videoId; const m = await api(data.id ? `/materials/${data.id}` : '/materials', data.id ? 'PATCH' : 'POST', request); f.reset(); f.elements.id.value = ''; f.elements.videoId.disabled = false; $('editorTitle').textContent = '创建草稿'; notice(`已保存素材版本 ${m.version}`); await materials(); });
+action('resetMaterial', async () => { $('materialForm').reset(); $('materialForm').elements.id.value = ''; $('materialForm').elements.videoId.disabled = false; $('editorTitle').textContent = '创建草稿'; });
+async function materials() { $('materialList').replaceChildren(); for (const m of await api('/creators/me/materials')) { const c = card(m.title, `${m.status} · v${m.version} · ${money(m.priceCent)}`); c.append(button('编辑', () => fillMaterial(m)), button('发布 / 支付上架费', async () => { const o = await api(`/materials/${m.id}/publish`, 'POST', {idempotencyKey: key()}); if (o.status === 'PAID') { notice('本版本上架费已支付，已发布'); await materials(); } else await pay(o.id); }), button('下架', async () => { await api(`/materials/${m.id}/off-shelf`, 'POST', {}); await materials(); })); $('materialList').append(c); } }
+action('refreshMaterials', materials);
+async function pay(orderId) { const p = await api(`/orders/${orderId}/pay`, 'POST', {}); const c = card(`支付 ${money(p.amountCent)}`, `支付单 ${p.id} · ${p.status} · 渠道 ${p.provider}`); if (p.provider === 'MOCK') { c.append(node('strong','开发环境模拟支付，不扣真实资金。'), button('确认模拟支付成功', async () => { const paid = await api(`/dev/payments/${p.id}/succeed`, 'POST', {}); notice(`支付状态：${paid.status}。权益/发布通过消息异步更新，请刷新。`); $('payment').replaceChildren(); })); } else if (p.checkoutUrl) { c.append(node('p', '请使用微信支付扫码端展示以下渠道二维码内容：'), node('code', p.checkoutUrl)); } c.append(button('主动查单', async () => { const result = await api(`/payments/${p.id}`); notice(`支付状态：${result.status}`); }), button('关闭提示', () => $('payment').replaceChildren())); $('payment').replaceChildren(c); $('payment').scrollIntoView(); }
+async function market(query = '') { $('marketList').replaceChildren(); for (const m of await api(`/marketplace/materials?query=${encodeURIComponent(query)}`)) { const c = card(m.title, `${m.category} · ${money(m.priceCent)} · v${m.version}`); c.append(node('p',m.description), button('查看协议 / 购买', () => detail(m.id))); $('marketList').append(c); } const rule = await api('/marketplace/fee-rule'); $('feeRule').textContent = `当前上架费 ${money(rule.listingFeeCent)} · 佣金 ${rule.commissionBps} BPS · 渠道费 ${rule.channelFeeBps} BPS`; }
+form('search', data => market(data.query));
+async function detail(id) { const purchaseKey = key(); const m = await api(`/marketplace/materials/${id}`); const c = card(m.title, `${money(m.priceCent)} · 素材版本 ${m.version} · 协议版本 ${m.licenseVersion}`); c.append(node('p',m.description), node('pre',JSON.stringify(m.license,null,2))); const label = node('label'), checkbox = document.createElement('input'); checkbox.type = 'checkbox'; label.append(checkbox, document.createTextNode('我已阅读并同意本版本授权协议')); c.append(label, button('创建购买订单', async () => { if (!checkbox.checked) throw new Error('请先确认授权协议'); const o = await api('/orders','POST',{materialId:m.id,materialVersion:m.version,licenseId:m.licenseId,acceptLicense:true,idempotencyKey:purchaseKey}); await pay(o.id); }), button('获取水印预览', async () => { const p = await api(`/marketplace/materials/${id}/preview`); const video = document.createElement('video'); video.controls = true; video.src = p.masterUrl; c.append(video,node('p','预览为水印 HLS；浏览器需支持 HLS 播放。')); })); $('detail').replaceChildren(c); c.scrollIntoView(); }
+async function orders(admin = false) { const target = $(admin ? 'adminOrderList':'orderList'); target.replaceChildren(); for (const o of await api(admin ? '/admin/orders':'/orders')) { const c = card(`${o.type} · ${o.status}`, `${o.id} · ${money(o.amountCent)}`); c.append(node('pre',JSON.stringify({fees:o.fees,license:o.license},null,2))); if (!admin && ['PENDING','PAYING'].includes(o.status)) c.append(button('支付',()=>pay(o.id)),button('取消',async()=>{await api(`/orders/${o.id}/cancel`,'POST',{});await orders();})); if (o.status === 'PAID') c.append(button('申请全额退款',async()=>{const reason=prompt('退款原因');if(!reason)return;await api(`${admin?'/admin':''}/orders/${o.id}/refund`,'POST',{idempotencyKey:key(),reason});notice('退款已提交，权益将撤销');await orders(admin);})); target.append(c); } }
+action('refreshOrders',()=>orders());
+async function purchases() { $('purchaseList').replaceChildren(); for (const e of await api('/entitlements')) { const c = card(`${e.materialId} · v${e.materialVersion}`, `${e.status} · ${e.expiresAt ? '到期：'+e.expiresAt:'无限期授权'}`); c.append(node('pre',JSON.stringify(e.license,null,2)),button('获取安全下载链接',async()=>{const d=await api(`/entitlements/${e.id}/download`,'POST',{});const a=node('a',`下载原始素材（${d.expiresIn} 秒内有效）`);a.href=d.url;a.target='_blank';a.rel='noopener';c.append(a);})); $('purchaseList').append(c); } }
+action('refreshPurchases',purchases);
+async function earnings() { const b = await api('/earnings/balance'); $('balances').textContent = `冻结 ${money(b.frozenCent)} ｜ 可用 ${money(b.availableCent)} ｜ 提现中 ${money(b.payoutPendingCent)} ｜ 待追偿 ${money(b.debtCent)}`; json('entries',await api('/earnings/entries')); $('withdrawals').replaceChildren(); for(const w of await api('/withdrawals')){const c=card(`${w.status} · ${money(w.amountCent)}`,`${w.id} · ${w.provider}${w.provider==='MOCK'?'（模拟，不代表真实到账）':''}`);if(w.provider==='MOCK'&&['PENDING','PROCESSING'].includes(w.status))for(const success of [true,false])c.append(button(success?'模拟提现成功':'模拟提现失败',async()=>{await api(`/dev/withdrawals/${w.id}/complete`,'POST',{success});await earnings();}));$('withdrawals').append(c);} }
+action('refreshEarnings',earnings);
+form('accountForm',async data=>{await api('/withdrawals/account','PUT',data);notice('提现账户已保存');});
+form('withdrawForm',async (data,f)=>{f.dataset.requestKey ||= key();await api('/withdrawals','POST',{amountCent:Number(data.amountCent),idempotencyKey:f.dataset.requestKey});delete f.dataset.requestKey;notice('提现已申请');await earnings();});
+action('adminOrders',()=>orders(true));
+action('verifyLedger',async()=>json('ledgerCheck',await api('/admin/ledger/verify')));
+$('ruleForm').elements.effectiveAt.value = new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16);
+$('reconcileForm').elements.day.value = new Date().toLocaleDateString('en-CA');
+form('ruleForm',async data=>{const body={...data};for(const name of ['listingFeeCent','commissionBps','channelFeeBps','minimumWithdrawalCent','freezeSeconds'])body[name]=Number(body[name]);body.effectiveAt=new Date(body.effectiveAt).toISOString();const result=await api('/admin/fee-rules','POST',body);notice(`已创建收费规则 v${result.version}`);});
+form('reconcileForm',async data=>{const b=await api('/admin/reconciliation/run','POST',{day:data.day});notice(`对账批次 ${b.id}：${b.status}`);await batches();});
+action('fixture',async()=>{const f=$('fixtureFile').files[0];if(!f)throw new Error('请选择测试账单 JSON');if(f.size>1024*1024)throw new Error('测试账单文件需小于 1 MiB');const b=await api('/admin/reconciliation/fixture','POST',JSON.parse(await f.text()));notice(`测试账单对账：${b.status}`);await batches();});
+async function batches(){ $('batchList').replaceChildren();for(const b of await api('/admin/reconciliation/batches')){const c=card(`${b.billDate} · ${b.status}`,`${b.provider} · ${b.source} · ${b.id}`);c.append(button('查看差异',async()=>json('differences',await api(`/admin/reconciliation/batches/${b.id}/differences`))));$('batchList').append(c);} }
+action('batches',batches);
+try { if(token) await profile(); await market(); } catch(e) {notice(e.message,true);}

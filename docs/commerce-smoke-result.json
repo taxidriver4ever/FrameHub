@@ -1,0 +1,24 @@
+{
+  "workerRecovery": {
+    "checkpointReused": true,
+    "oldExecution": 1,
+    "newExecution": 2
+  },
+  "videoId": "95ed2fb2-02e2-466c-b502-fccfeaaad96a",
+  "materialId": "465b4c16-7d77-46bf-8366-9bc854608ae7",
+  "listingOrderId": "aed814d7-f5ac-439d-96ba-72bfefd74682",
+  "purchaseOrderId": "e78eff99-481e-4517-8dd9-6ef99e7521ef",
+  "paymentId": "4a3dfa8f-ffb8-468b-b30e-aa9442837c8b",
+  "entitlementId": "1aa6e208-ccdf-4206-9b16-d063e1f529c1",
+  "withdrawalId": "5e3db1fa-f2f8-48be-8922-370095e8366a",
+  "sourceBytes": 101215852,
+  "sourceHashVerified": true,
+  "hlsDecoded": true,
+  "duplicateEventsIdempotent": true,
+  "restartRecovered": true,
+  "refundRevoked": true,
+  "debtCent": 8440,
+  "ledgerBalanced": true,
+  "reconciliationDifferences": 0,
+  "mockOnly": true
+}

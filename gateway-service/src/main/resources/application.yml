@@ -1,0 +1,40 @@
+server:
+  port: ${GATEWAY_PORT:28080}
+  forward-headers-strategy: none
+spring:
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2s
+  application:
+    name: gateway-service
+  main:
+    web-application-type: reactive
+  cloud:
+    gateway:
+      server:
+        webflux:
+          httpclient:
+            connect-timeout: 3000
+            response-timeout: 15s
+          routes:
+            - id: video-asset-service
+              uri: ${VIDEO_SERVICE_URL:http://127.0.0.1:8082}
+              predicates:
+                - Path=/api/v1/videos/**,/assets/**,/materials/**,/marketplace/**,/orders/**,/payments/**,/entitlements/**,/earnings/**,/withdrawals/**,/admin/**,/dev/**,/payment-notifications/**,/creators/me/materials
+              metadata:
+                response-timeout: 1200000
+            - id: user-service
+              uri: ${USER_SERVICE_URL:http://127.0.0.1:8081}
+              predicates:
+                - Path=/auth/**,/users/**,/creators/**
+app:
+  allowed-origins: ${ALLOWED_ORIGINS}
+  rate-limit:
+    enabled: ${GATEWAY_RATE_LIMIT_ENABLED:true}
+    user-rate: ${GATEWAY_USER_RATE:20}
+    user-burst: ${GATEWAY_USER_BURST:40}
+    interface-rate: ${GATEWAY_INTERFACE_RATE:5}
+    interface-burst: ${GATEWAY_INTERFACE_BURST:10}

@@ -1,0 +1,195 @@
+name: framehub
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: framehub
+      MYSQL_USER: ${DB_USERNAME:?required}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?required}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?required}
+    command: [--server-id=1, --log-bin=mysql-bin, --log-bin-trust-function-creators=1, --binlog-format=ROW, --binlog-row-image=FULL, --binlog-expire-logs-seconds=604800, --mysql-native-password=ON]
+    volumes: [mysql-data:/var/lib/mysql]
+    networks: [backend]
+    healthcheck:
+      test: [CMD-SHELL, 'MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mysqladmin ping -h localhost -u root --silent']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  redis:
+    image: redis:7.4-alpine
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?required}
+    command: [/bin/sh, -c, 'exec redis-server --requirepass "$$REDIS_PASSWORD" --appendonly yes']
+    volumes: [redis-data:/data]
+    networks: [backend]
+  minio:
+    image: coollabsio/minio:RELEASE.2025-04-22T22-12-26Z@sha256:a4938f37f1be1841b8e7b627ad0207b265345fd0d063e42d7410c78af0e63e68
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:?required}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:?required}
+      MINIO_API_CORS_ALLOW_ORIGIN: ${ALLOWED_ORIGINS:?required}
+    command: server /data --console-address :9001
+    volumes: [minio-data:/data]
+    networks: [backend]
+  minio-init:
+    image: coollabsio/minio:RELEASE.2025-04-22T22-12-26Z@sha256:a4938f37f1be1841b8e7b627ad0207b265345fd0d063e42d7410c78af0e63e68
+    depends_on: [minio]
+    environment:
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET:-avatars}
+      VIDEO_BUCKET: ${VIDEO_BUCKET:-videos}
+    entrypoint: [/bin/sh, -c]
+    command:
+      - 'until mc alias set local http://minio:9000 "$$MINIO_ACCESS_KEY" "$$MINIO_SECRET_KEY"; do sleep 2; done; mc mb --ignore-existing local/$$MINIO_BUCKET && mc anonymous set none local/$$MINIO_BUCKET && mc mb --ignore-existing local/$$VIDEO_BUCKET && mc anonymous set none local/$$VIDEO_BUCKET'
+    networks: [backend]
+  user-service:
+    build:
+      context: .
+      target: runtime
+      args: {SERVICE: user-service}
+    env_file: .env
+    environment:
+      SPRING_PROFILES_ACTIVE: production
+      USER_SERVICE_BIND: 0.0.0.0
+      USER_SERVICE_PORT: 8081
+      DB_URL: jdbc:mysql://mysql:3306/framehub?connectionTimeZone=UTC
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      TRUST_GATEWAY: 'true'
+      MINIO_INTERNAL_ENDPOINT: http://minio:9000
+    depends_on:
+      mysql: {condition: service_healthy}
+      redis: {condition: service_started}
+      minio-init: {condition: service_completed_successfully}
+    # No host port; egress permits SMTP and an externally hosted object store.
+    networks: [backend, egress]
+  gateway-service:
+    build:
+      context: .
+      target: runtime
+      args: {SERVICE: gateway-service}
+    environment:
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?required}
+      GATEWAY_PORT: ${GATEWAY_PORT:-28080}
+      USER_SERVICE_URL: http://user-service:8081
+      VIDEO_SERVICE_URL: http://video-asset-service:8082
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?required}
+    ports: ['${GATEWAY_BIND:-127.0.0.1}:${GATEWAY_PORT:-28080}:${GATEWAY_PORT:-28080}']
+    depends_on: [user-service, video-asset-service]
+    networks: [backend, edge]
+  video-db-init:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      VIDEO_DB_PASSWORD: ${VIDEO_DB_PASSWORD:?required}
+      CANAL_PASSWORD: ${CANAL_PASSWORD:?required}
+    volumes: [./deploy/mysql/video-init.sh:/init.sh:ro, canal-state:/canal-state]
+    entrypoint: [/bin/sh, /init.sh]
+    depends_on:
+      mysql: {condition: service_healthy}
+    networks: [backend]
+  kafka-storage-init:
+    image: apache/kafka:3.9.1
+    user: root
+    entrypoint: [/bin/sh, -c]
+    command: ['chown 1000:1000 /data']
+    volumes: [kafka-data:/data]
+    networks: [backend]
+  kafka:
+    image: apache/kafka:3.9.1
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093,LOCAL://:19092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,LOCAL://localhost:19092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT,LOCAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
+      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    volumes: [kafka-data:/tmp/kraft-combined-logs]
+    depends_on:
+      kafka-storage-init: {condition: service_completed_successfully}
+    networks: [backend]
+    healthcheck:
+      test: [CMD-SHELL, '/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1']
+      interval: 10s
+      timeout: 10s
+      retries: 30
+  kafka-init:
+    image: apache/kafka:3.9.1
+    entrypoint: [/bin/sh, -c]
+    command: ['/opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic video.outbox.cdc --partitions 3 --replication-factor 1 --config retention.ms=604800000']
+    depends_on:
+      kafka: {condition: service_healthy}
+    networks: [backend]
+  canal:
+    image: canal/canal-server:v1.1.8
+    stop_grace_period: 60s
+    mem_limit: 768m
+    environment:
+      CANAL_PASSWORD: ${CANAL_PASSWORD}
+    entrypoint: [/bin/sh, /start-video.sh]
+    volumes:
+      - ./deploy/canal/start.sh:/start-video.sh:ro
+      - canal-state:/home/admin/canal-server/conf/video
+    depends_on:
+      video-db-init: {condition: service_completed_successfully}
+      kafka-init: {condition: service_completed_successfully}
+      video-asset-service: {condition: service_started}
+    networks: [backend]
+  video-asset-service: &video-app
+    build:
+      context: .
+      target: video-runtime
+      args: {SERVICE: video-asset-service}
+    env_file: .env
+    environment: &video-env
+      SPRING_PROFILES_ACTIVE: production
+      VIDEO_WORKER_ENABLED: 'false'
+      VIDEO_SERVICE_BIND: 0.0.0.0
+      VIDEO_DB_URL: jdbc:mysql://mysql:3306/framehub_video?connectionTimeZone=UTC
+      VIDEO_DB_USERNAME: framehub_video
+      USER_INTERNAL_URL: http://user-service:8081
+      MINIO_INTERNAL_ENDPOINT: http://minio:9000
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      VIDEO_WORK_DIR: /work
+    volumes: [video-work:/work]
+    cpus: 3
+    mem_limit: 4g
+    pids_limit: 256
+    depends_on:
+      video-db-init: {condition: service_completed_successfully}
+      kafka-init: {condition: service_completed_successfully}
+      minio-init: {condition: service_completed_successfully}
+    # Outbound HTTPS is needed by the payment adapter; no inbound host port.
+    networks: [backend, egress]
+  media-worker:
+    <<: *video-app
+    environment:
+      <<: *video-env
+      VIDEO_WORKER_ENABLED: 'true'
+      VIDEO_CONSUMER_ENABLED: 'false'
+    volumes: [worker-work:/work]
+    networks: [backend]
+    stop_grace_period: 30s
+networks:
+  backend:
+    internal: true
+  edge: {}
+  egress: {}
+volumes:
+  mysql-data: {}
+  redis-data: {}
+  minio-data: {}
+  kafka-data: {}
+  canal-state: {}
+  video-work: {}
+  worker-work: {}
